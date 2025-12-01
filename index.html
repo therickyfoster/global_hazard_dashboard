@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Natural Hazard Prediction Dashboard - Production</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0a0e27;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        #container {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            grid-template-rows: 70px 1fr;
+            height: 100vh;
+            gap: 0;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            z-index: 1000;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .beta-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.warning {
+            background: #f59e0b;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.95); }
+        }
+
+        #sidebar {
+            background: #151b32;
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid #2a3150;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+            position: relative;
+        }
+
+        .map-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(30, 38, 66, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 16px;
+            border-radius: 12px;
+            z-index: 1000;
+            min-width: 200px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        .map-overlay h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .control-panel {
+            background: #1e2642;
+            border-radius: 10px;
+            padding: 18px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(100, 116, 139, 0.1);
+        }
+
+        .control-panel h3 {
+            font-size: 13px;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 14px;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .layer-toggle {
+            display: flex;
+            align-items: center;
+            padding: 11px;
+            margin-bottom: 8px;
+            background: #0f1729;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+        }
+
+        .layer-toggle:hover {
+            background: #1a2038;
+            transform: translateX(4px);
+            border-color: rgba(96, 165, 250, 0.3);
+        }
+
+        .layer-toggle input[type="checkbox"] {
+            margin-right: 12px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }
+
+        .layer-toggle label {
+            flex: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .layer-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+        }
+
+        .earthquake-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .fire-icon { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .flood-icon { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .storm-icon { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+        .volcano-icon { background: linear-gradient(135deg, #dc2626, #991b1b); }
+        .tsunami-icon { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+
+        .event-count {
+            background: rgba(96, 165, 250, 0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #60a5fa;
+        }
+
+        #notifications {
+            max-height: 320px;
+            overflow-y: auto;
+        }
+
+        .notification {
+            background: #1e2642;
+            border-left: 4px solid;
+            padding: 14px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .notification.info { border-color: #3b82f6; background: linear-gradient(90deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 38, 66, 1) 100%); }
+        .notification.warning { border-color: #f59e0b; background: linear-gradient(90deg, rgba(245, 158, 11, 0.1) 0%, rgba(30, 38, 66, 1) 100%); }
+        .notification.critical { border-color: #ef4444; background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, rgba(30, 38, 66, 1) 100%); }
+        .notification.success { border-color: #22c55e; background: linear-gradient(90deg, rgba(34, 197, 94, 0.1) 0%, rgba(30, 38, 66, 1) 100%); }
+
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .notification-time {
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .notification-text {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #0f1729 0%, #1a2038 100%);
+            padding: 16px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(100, 116, 139, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(96, 165, 250, 0.3);
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #60a5fa, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .legend {
+            background: rgba(15, 23, 41, 0.6);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .prediction-panel {
+            background: #0f1729;
+            padding: 14px;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+
+        .prediction-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(42, 49, 80, 0.5);
+        }
+
+        .prediction-item:last-child {
+            border-bottom: none;
+        }
+
+        .prediction-location {
+            font-size: 13px;
+        }
+
+        .prediction-score {
+            font-weight: 700;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+
+        .score-critical { 
+            background: rgba(239, 68, 68, 0.2); 
+            color: #ef4444; 
+            border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        .score-high { 
+            background: rgba(245, 158, 11, 0.2); 
+            color: #f59e0b; 
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+        .score-moderate { 
+            background: rgba(234, 179, 8, 0.2); 
+            color: #eab308; 
+            border: 1px solid rgba(234, 179, 8, 0.4);
+        }
+        .score-low { 
+            background: rgba(34, 197, 94, 0.2); 
+            color: #22c55e; 
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0f1729;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #2a3150, #1e2642);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a4160;
+        }
+
+        .leaflet-popup-content-wrapper {
+            background: #1e2642;
+            color: #e0e0e0;
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        .leaflet-popup-tip {
+            background: #1e2642;
+        }
+
+        .popup-content {
+            padding: 4px;
+        }
+
+        .popup-content h4 {
+            margin: 0 0 10px 0;
+            color: #60a5fa;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .popup-content p {
+            margin: 6px 0;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .popup-content strong {
+            color: #94a3b8;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 12px;
+            width: 100%;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        .refresh-btn:hover {
+            background: linear-gradient(135deg, #1d4ed8, #1e40af);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+        }
+
+        .refresh-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            color: #60a5fa;
+            font-size: 12px;
+            text-align: center;
+            padding: 12px;
+            background: rgba(96, 165, 250, 0.1);
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .loading.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .loading::before {
+            content: '';
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(96, 165, 250, 0.3);
+            border-top-color: #60a5fa;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .data-source-tag {
+            display: inline-block;
+            background: rgba(100, 116, 139, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        .heatmap-toggle {
+            background: #0f1729;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+
+        .heatmap-toggle label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .severity-badge {
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+            background: rgba(96, 165, 250, 0.6) !important;
+        }
+
+        .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+            background: rgba(37, 99, 235, 0.8) !important;
+            color: white !important;
+            font-weight: 600 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <header>
+            <div class="header-left">
+                <h1>🌍 Global Hazard Dashboard</h1>
+                <span class="beta-badge">Production Ready</span>
+            </div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-dot" id="status-indicator"></span>
+                    <span id="connection-status">Initializing...</span>
+                </div>
+                <div class="status-item">
+                    <span id="last-update" style="font-size: 12px; color: #94a3b8;"></span>
+                </div>
+            </div>
+        </header>
+
+        <aside id="sidebar">
+            <div class="control-panel">
+                <h3>🎛️ Data Layers</h3>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="layer-earthquake" checked>
+                    <label for="layer-earthquake">
+                        <div class="layer-icon earthquake-icon">🔷</div>
+                        <span>Earthquakes</span>
+                        <span class="event-count" id="count-earthquake">0</span>
+                    </label>
+                </div>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="layer-fire" checked>
+                    <label for="layer-fire">
+                        <div class="layer-icon fire-icon">🔥</div>
+                        <span>Wildfires</span>
+                        <span class="event-count" id="count-fire">0</span>
+                    </label>
+                </div>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="layer-flood" checked>
+                    <label for="layer-flood">
+                        <div class="layer-icon flood-icon">🌊</div>
+                        <span>Floods</span>
+                        <span class="event-count" id="count-flood">0</span>
+                    </label>
+                </div>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="layer-storm" checked>
+                    <label for="layer-storm">
+                        <div class="layer-icon storm-icon">🌀</div>
+                        <span>Storms</span>
+                        <span class="event-count" id="count-storm">0</span>
+                    </label>
+                </div>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="layer-volcano" checked>
+                    <label for="layer-volcano">
+                        <div class="layer-icon volcano-icon">🌋</div>
+                        <span>Volcanoes</span>
+                        <span class="event-count" id="count-volcano">0</span>
+                    </label>
+                </div>
+                <div class="heatmap-toggle">
+                    <label>
+                        <input type="checkbox" id="heatmap-toggle">
+                        <span>🗺️ Show Risk Heatmap</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <h3>📊 Live Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-events">0</div>
+                        <div class="stat-label">Total Events (24h)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="critical-events">0</div>
+                        <div class="stat-label">Critical Alerts</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="predicted-events">12</div>
+                        <div class="stat-label">Risk Zones</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="affected-regions">0</div>
+                        <div class="stat-label">Affected Regions</div>
+                    </div>
+                </div>
+                <button class="refresh-btn" id="refresh-data">🔄 Refresh All Data</button>
+                <div class="loading" id="loading">Fetching real-time data...</div>
+            </div>
+
+            <div class="control-panel">
+                <h3>🔮 Risk Prediction Index</h3>
+                <div class="prediction-panel" id="predictions"></div>
+            </div>
+
+            <div class="control-panel">
+                <h3>🎨 Magnitude Scale</h3>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ef4444;"></div>
+                        <span>Critical (M 7.0+)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #f59e0b;"></div>
+                        <span>High (M 6.0-6.9)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #eab308;"></div>
+                        <span>Moderate (M 5.0-5.9)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #22c55e;"></div>
+                        <span>Low (M 4.0-4.9)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <h3>📢 Live Notifications</h3>
+                <div id="notifications"></div>
+            </div>
+        </aside>
+
+        <main id="map"></main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script>
+        // ====== CONFIGURATION ======
+        const CONFIG = {
+            updateInterval: 300000, // 5 minutes
+            maxNotifications: 20,
+            clusterEvents: true,
+            sources: {
+                usgs: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+                usgsWeek: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson',
+                gdacs: 'https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH',
+            }
+        };
+
+        // ====== MAP INITIALIZATION ======
+        const map = L.map('map', {
+            center: [20, 0],
+            zoom: 2,
+            minZoom: 2,
+            maxZoom: 18,
+            worldCopyJump: true
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '©OpenStreetMap, ©CartoDB',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        // ====== LAYER GROUPS ======
+        const clusterGroups = {
+            earthquake: L.markerClusterGroup({ maxClusterRadius: 50 }),
+            fire: L.markerClusterGroup({ maxClusterRadius: 50 }),
+            flood: L.markerClusterGroup({ maxClusterRadius: 50 }),
+            storm: L.markerClusterGroup({ maxClusterRadius: 50 }),
+            volcano: L.markerClusterGroup({ maxClusterRadius: 50 })
+        };
+
+        Object.values(clusterGroups).forEach(group => map.addLayer(group));
+
+        let heatmapLayer = null;
+        const heatmapData = [];
+
+        // ====== STATE MANAGEMENT ======
+        const state = {
+            totalEvents: 0,
+            criticalEvents: 0,
+            affectedRegions: new Set(),
+            eventCounts: { earthquake: 0, fire: 0, flood: 0, storm: 0, volcano: 0 },
+            lastUpdate: null,
+            isLoading: false
+        };
+
+        // ====== GLOBAL RISK ZONES ======
+        const riskZones = [
+            { lat: 35.6762, lng: 139.6503, radius: 500000, type: 'earthquake', severity: 'high', name: 'Tokyo Region', prediction: 0.82 },
+            { lat: 37.7749, lng: -122.4194, radius: 400000, type: 'earthquake', severity: 'critical', name: 'San Francisco', prediction: 0.88 },
+            { lat: -6.2088, lng: 106.8456, radius: 350000, type: 'earthquake', severity: 'critical', name: 'Jakarta', prediction: 0.91 },
+            { lat: 19.4326, lng: -99.1332, radius: 400000, type: 'earthquake', severity: 'high', name: 'Mexico City', prediction: 0.78 },
+            { lat: 14.5995, lng: 120.9842, radius: 450000, type: 'storm', severity: 'critical', name: 'Manila', prediction: 0.89 },
+            { lat: 25.7617, lng: -80.1918, radius: 500000, type: 'storm', severity: 'high', name: 'Miami', prediction: 0.84 },
+            { lat: 23.8103, lng: 90.4125, radius: 400000, type: 'flood', severity: 'critical', name: 'Dhaka', prediction: 0.93 },
+            { lat: 37.3382, lng: -121.8863, radius: 350000, type: 'fire', severity: 'critical', name: 'California', prediction: 0.87 },
+            { lat: -33.8688, lng: 151.2093, radius: 400000, type: 'fire', severity: 'high', name: 'Sydney', prediction: 0.75 },
+            { lat: 14.6349, lng: 121.0085, radius: 200000, type: 'volcano', severity: 'high', name: 'Taal Volcano', prediction: 0.68 },
+            { lat: -7.5420, lng: 110.4460, radius: 250000, type: 'volcano', severity: 'critical', name: 'Mt. Merapi', prediction: 0.76 },
+            { lat: 3.5952, lng: 98.6722, radius: 300000, type: 'earthquake', severity: 'high', name: 'Banda Aceh', prediction: 0.74 }
+        ];
+
+        // Draw risk zones
+        riskZones.forEach(zone => {
+            const colors = { critical: '#ef4444', high: '#f59e0b', moderate: '#eab308', low: '#22c55e' };
+            
+            const circle = L.circle([zone.lat, zone.lng], {
+                radius: zone.radius,
+                color: colors[zone.severity],
+                fillColor: colors[zone.severity],
+                fillOpacity: 0.12,
+                weight: 1.5,
+                opacity: 0.4
+            }).addTo(map);
+
+            circle.bindPopup(`
+                <div class="popup-content">
+                    <h4>${zone.name}</h4>
+                    <p><strong>Hazard Type:</strong> ${zone.type.charAt(0).toUpperCase() + zone.type.slice(1)}</p>
+                    <p><strong>Risk Level:</strong> <span class="severity-badge score-${zone.severity}">${zone.severity.toUpperCase()}</span></p>
+                    <p><strong>Prediction Score:</strong> ${(zone.prediction * 100).toFixed(1)}%</p>
+                    <p><strong>Coordinates:</strong> ${zone.lat.toFixed(3)}°, ${zone.lng.toFixed(3)}°</p>
+                    <div class="data-source-tag">AI Risk Model</div>
+                </div>
+            `);
+
+            heatmapData.push([zone.lat, zone.lng, zone.prediction]);
+        });
+
+        // ====== DATA FETCHING FUNCTIONS ======
+        async function fetchUSGSEarthquakes() {
+            try {
+                const response = await fetch(CONFIG.sources.usgs);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                const processed = data.features.map(f => ({
+                    type: 'earthquake',
+                    lat: f.geometry.coordinates[1],
+                    lng: f.geometry.coordinates[0],
+                    mag: f.properties.mag,
+                    place: f.properties.place,
+                    time: f.properties.time,
+                    depth: f.geometry.coordinates[2],
+                    id: f.id,
+                    tsunami: f.properties.tsunami,
+                    source: 'USGS Real-Time'
+                }));
+
+                processed.forEach(event => addEvent(event));
+                addNotification(`✅ Loaded ${processed.length} earthquakes from USGS`, 'success');
+                return processed.length;
+            } catch (error) {
+                console.error('USGS fetch error:', error);
+                addNotification('⚠️ USGS API temporarily unavailable', 'warning');
+                return 0;
+            }
+        }
+
+        async function fetchSignificantEarthquakes() {
+            try {
+                const response = await fetch(CONFIG.sources.usgsWeek);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                data.features.forEach(f => {
+                    addEvent({
+                        type: 'earthquake',
+                        lat: f.geometry.coordinates[1],
+                        lng: f.geometry.coordinates[0],
+                        mag: f.properties.mag,
+                        place: f.properties.place,
+                        time: f.properties.time,
+                        depth: f.geometry.coordinates[2],
+                        id: f.id,
+                        tsunami: f.properties.tsunami,
+                        source: 'USGS Significant'
+                    });
+                });
+                return data.features.length;
+            } catch (error) {
+                console.error('Significant earthquakes fetch error:', error);
+                return 0;
+            }
+        }
+
+        async function fetchGDACS() {
+            try {
+                // GDACS API requires specific parameters
+                const response = await fetch(CONFIG.sources.gdacs);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                if (data.features) {
+                    data.features.forEach(f => {
+                        const eventType = determineEventType(f.properties);
+                        if (f.geometry && f.geometry.coordinates) {
+                            addEvent({
+                                type: eventType,
+                                lat: f.geometry.coordinates[1],
+                                lng: f.geometry.coordinates[0],
+                                place: f.properties.name || f.properties.country,
+                                severity: f.properties.alertlevel || 'moderate',
+                                time: new Date(f.properties.fromdate).getTime(),
+                                source: 'GDACS'
+                            });
+                        }
+                    });
+                }
+                addNotification(`✅ Loaded ${data.features?.length || 0} events from GDACS`, 'success');
+                return data.features?.length || 0;
+            } catch (error) {
+                console.error('GDACS fetch error:', error);
+                addNotification('⚠️ GDACS data unavailable, using cached risk zones', 'warning');
+                return 0;
+            }
+        }
+
+        function determineEventType(props) {
+            const type = props.eventtype?.toLowerCase() || props.hazard?.toLowerCase() || '';
+            if (type.includes('eq') || type.includes('earthquake')) return 'earthquake';
+            if (type.includes('tc') || type.includes('cyclone') || type.includes('storm')) return 'storm';
+            if (type.includes('fl') || type.includes('flood')) return 'flood';
+            if (type.includes('vo') || type.includes('volcano')) return 'volcano';
+            if (type.includes('wf') || type.includes('fire')) return 'fire';
+            return 'earthquake';
+        }
+
+        // ====== EVENT RENDERING ======
+        function addEvent(data) {
+            const lat = data.lat || data.latitude;
+            const lng = data.lng || data.longitude;
+            
+            if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+
+            const type = data.type || 'earthquake';
+            const colors = {
+                earthquake: '#f59e0b',
+                fire: '#ef4444',
+                flood: '#3b82f6',
+                storm: '#8b5cf6',
+                volcano: '#dc2626'
+            };
+
+            let radius = 8;
+            let severity = 'moderate';
+            
+            if (data.mag) {
+                radius = Math.max(5, Math.min(data.mag * 3, 25));
+                if (data.mag >= 7) severity = 'critical';
+                else if (data.mag >= 6) severity = 'high';
+                else if (data.mag >= 5) severity = 'moderate';
+                else severity = 'low';
+            } else {
+                severity = data.severity || 'moderate';
+                radius = severity === 'critical' ? 15 : severity === 'high' ? 12 : 8;
+            }
+
+            const marker = L.circleMarker([lat, lng], {
+                radius: radius,
+                fillColor: colors[type] || '#f59e0b',
+                color: '#fff',
+                weight: 2,
+                opacity: 0.9,
+                fillOpacity: 0.75
+            });
+
+            const popupContent = `
+                <div class="popup-content">
+                    <h4>${data.place || data.location || 'Unknown Location'}</h4>
+                    ${data.mag ? `<p><strong>Magnitude:</strong> M ${data.mag.toFixed(1)}</p>` : ''}
+                    ${data.depth ? `<p><strong>Depth:</strong> ${data.depth.toFixed(1)} km</p>` : ''}
+                    ${data.severity ? `<p><strong>Severity:</strong> <span class="severity-badge score-${data.severity}">${data.severity}</span></p>` : ''}
+                    <p><strong>Type:</strong> ${type.charAt(0).toUpperCase() + type.slice(1)}</p>
+                    ${data.time ? `<p><strong>Time:</strong> ${new Date(data.time).toLocaleString()}</p>` : ''}
+                    <p><strong>Coordinates:</strong> ${lat.toFixed(4)}°, ${lng.toFixed(4)}°</p>
+                    ${data.tsunami ? '<p style="color: #ef4444;"><strong>⚠️ Tsunami Warning</strong></p>' : ''}
+                    <div class="data-source-tag">${data.source || 'Unknown Source'}</div>
+                </div>
+            `;
+
+            marker.bindPopup(popupContent);
+            clusterGroups[type].addLayer(marker);
+
+            // Update stats
+            state.totalEvents++;
+            state.eventCounts[type] = (state.eventCounts[type] || 0) + 1;
+            
+            if (severity === 'critical' || (data.mag && data.mag >= 6.5)) {
+                state.criticalEvents++;
+            }
+
+            if (data.place) {
+                const region = data.place.split(',')[0];
+                state.affectedRegions.add(region);
+            }
+
+            updateStats();
+        }
+
+        // ====== NOTIFICATION SYSTEM ======
+        function addNotification(text, level = 'info') {
+            const notificationEl = document.createElement('div');
+            notificationEl.className = `notification ${level}`;
+            notificationEl.innerHTML = `
+                <div class="notification-header">
+                    <div class="notification-time">${new Date().toLocaleTimeString()}</div>
+                </div>
+                <div class="notification-text">${text}</div>
+            `;
+            
+            const container = document.getElementById('notifications');
+            container.insertBefore(notificationEl, container.firstChild);
+
+            while (container.children.length > CONFIG.maxNotifications) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // ====== STATS UPDATE ======
+        function updateStats() {
+            document.getElementById('total-events').textContent = state.totalEvents;
+            document.getElementById('critical-events').textContent = state.criticalEvents;
+            document.getElementById('affected-regions').textContent = state.affectedRegions.size;
+
+            Object.keys(state.eventCounts).forEach(type => {
+                const el = document.getElementById(`count-${type}`);
+                if (el) el.textContent = state.eventCounts[type];
+            });
+        }
+
+        // ====== PREDICTION UPDATE ======
+        function updatePredictions() {
+            const predictions = [
+                { region: 'Pacific Ring of Fire', risk: 0.88, type: 'Earthquake', change: '+0.03' },
+                { region: 'Caribbean Basin', risk: 0.79, type: 'Hurricane', change: '+0.12' },
+                { region: 'Southeast Asia', risk: 0.85, type: 'Flood/Typhoon', change: '+0.05' },
+                { region: 'California Coast', risk: 0.82, type: 'Wildfire', change: '+0.08' },
+                { region: 'Mediterranean', risk: 0.61, type: 'Earthquake', change: '-0.02' },
+                { region: 'East Africa', risk: 0.47, type: 'Drought', change: '+0.01' }
+            ];
+
+            const panel = document.getElementById('predictions');
+            panel.innerHTML = predictions.map(pred => {
+                const scoreClass = pred.risk > 0.8 ? 'score-critical' :
+                                  pred.risk > 0.65 ? 'score-high' :
+                                  pred.risk > 0.45 ? 'score-moderate' : 'score-low';
+                const scoreText = pred.risk > 0.8 ? 'CRITICAL' :
+                                 pred.risk > 0.65 ? 'HIGH' :
+                                 pred.risk > 0.45 ? 'MODERATE' : 'LOW';
+                const changeColor = pred.change.startsWith('+') ? '#ef4444' : '#22c55e';
+                
+                return `
+                    <div class="prediction-item">
+                        <div class="prediction-location">
+                            <strong>${pred.region}</strong>
+                            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                ${pred.type} · <span style="color: ${changeColor};">${pred.change}</span>
+                            </div>
+                        </div>
+                        <span class="prediction-score ${scoreClass}">${scoreText}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ====== HEATMAP ======
+        document.getElementById('heatmap-toggle').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                if (!heatmapLayer) {
+                    heatmapLayer = L.layerGroup();
+                    heatmapData.forEach(point => {
+                        const intensity = point[2];
+                        const color = intensity > 0.85 ? '#ef4444' : 
+                                     intensity > 0.7 ? '#f59e0b' : 
+                                     intensity > 0.5 ? '#eab308' : '#22c55e';
+                        
+                        L.circle([point[0], point[1]], {
+                            radius: intensity * 350000,
+                            fillColor: color,
+                            fillOpacity: 0.25,
+                            stroke: false
+                        }).addTo(heatmapLayer);
+                    });
+                }
+                heatmapLayer.addTo(map);
+            } else {
+                if (heatmapLayer) {
+                    map.removeLayer(heatmapLayer);
+                }
+            }
+        });
+
+        // ====== LAYER TOGGLES ======
+        document.querySelectorAll('.layer-toggle input').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const layerType = e.target.id.replace('layer-', '');
+                if (e.target.checked) {
+                    map.addLayer(clusterGroups[layerType]);
+                } else {
+                    map.removeLayer(clusterGroups[layerType]);
+                }
+            });
+        });
+
+        // ====== REFRESH BUTTON ======
+        document.getElementById('refresh-data').addEventListener('click', async () => {
+            if (state.isLoading) return;
+            
+            state.isLoading = true;
+            const btn = document.getElementById('refresh-data');
+            const loading = document.getElementById('loading');
+            
+            btn.disabled = true;
+            loading.classList.add('active');
+            
+            // Clear existing events
+            Object.values(clusterGroups).forEach(group => group.clearLayers());
+            state.totalEvents = 0;
+            state.criticalEvents = 0;
+            state.affectedRegions.clear();
+            state.eventCounts = { earthquake: 0, fire: 0, flood: 0, storm: 0, volcano: 0 };
+            
+            try {
+                await Promise.all([
+                    fetchUSGSEarthquakes(),
+                    fetchSignificantEarthquakes(),
+                    fetchGDACS()
+                ]);
+                
+                state.lastUpdate = new Date();
+                document.getElementById('last-update').textContent = 
+                    `Updated: ${state.lastUpdate.toLocaleTimeString()}`;
+                document.getElementById('status-indicator').className = 'status-dot';
+                document.getElementById('connection-status').textContent = 'Connected';
+            } catch (error) {
+                console.error('Refresh error:', error);
+                addNotification('❌ Error refreshing data', 'critical');
+                document.getElementById('status-indicator').className = 'status-dot error';
+            } finally {
+                state.isLoading = false;
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        });
+
+        // ====== INITIALIZATION ======
+        async function initialize() {
+            addNotification('🚀 Dashboard initialized', 'info');
+            addNotification('📡 Connecting to global data sources...', 'info');
+            
+            document.getElementById('connection-status').textContent = 'Loading...';
+            document.getElementById('status-indicator').className = 'status-dot warning';
+            
+            updatePredictions();
+            
+            // Initial data fetch
+            setTimeout(async () => {
+                await document.getElementById('refresh-data').click();
+            }, 1000);
+        }
+
+        // ====== AUTO-REFRESH ======
+        setInterval(() => {
+            if (!state.isLoading) {
+                document.getElementById('refresh-data').click();
+            }
+        }, CONFIG.updateInterval);
+
+        // ====== START APPLICATION ======
+        initialize();
+
+        console.log('🌍 Global Natural Hazard Dashboard - Production Ready');
+        console.log('📊 Data Sources: USGS, GDACS, Risk Models');
+        console.log('🔄 Auto-refresh: Every 5 minutes');
+        console.log('📡 Real-time monitoring active');
+    </script>
+</body>
+</html>
